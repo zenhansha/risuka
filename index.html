@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>りすかメーカー</title>
+  <meta name="description" content="コードと雰囲気からリリースカットピアノを自動生成するツール">
+  <link rel="stylesheet" href="src/style.css">
+</head>
+<body>
+  <header class="head">
+    <h1>りすかメーカー</h1>
+    <p>コードと雰囲気を選ぶと、リリースカットピアノを毎回新しく書きます</p>
+  </header>
+
+  <main class="layout">
+    <aside class="panel" aria-label="入力">
+      <section class="block">
+        <label class="label" for="chords">コード進行</label>
+        <textarea id="chords" rows="3" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>
+        <p id="chordError" class="error" role="alert" hidden></p>
+        <div class="chips" id="presets" aria-label="定番の進行"></div>
+        <details class="hint">
+          <summary>書き方</summary>
+          <dl>
+            <dt>F G Em Am</dt><dd>1コード1小節</dd>
+            <dt>F G | Em Am</dt><dd>| で小節を区切る</dd>
+            <dt>C:3 G:1</dt><dd>:拍数 で長さを指定</dd>
+            <dt>C - G -</dt><dd>- で前のコードを伸ばす</dd>
+            <dt>% / N.C.</dt><dd>前の小節の繰り返し / ブレイク</dd>
+            <dt>IV V iii vi</dt><dd>ローマ数字(キーを選んだとき)</dd>
+          </dl>
+        </details>
+      </section>
+
+      <section class="block row3">
+        <div>
+          <label class="label" for="key">キー</label>
+          <select id="key"></select>
+        </div>
+        <div>
+          <label class="label" for="meter">拍子</label>
+          <select id="meter">
+            <option value="4/4">4/4</option>
+            <option value="3/4">3/4</option>
+            <option value="5/4">5/4</option>
+            <option value="6/8">6/8</option>
+            <option value="7/8">7/8</option>
+          </select>
+        </div>
+        <div>
+          <label class="label" for="repeat">繰り返し</label>
+          <select id="repeat">
+            <option value="1">1回</option>
+            <option value="2">2回</option>
+            <option value="4">4回</option>
+          </select>
+        </div>
+      </section>
+
+      <section class="block">
+        <span class="label" id="moodLabel">雰囲気</span>
+        <div class="moods" id="moods" role="radiogroup" aria-labelledby="moodLabel"></div>
+      </section>
+
+      <details class="block adjust">
+        <summary>細かく調整</summary>
+        <div class="slider">
+          <label for="density">音数</label>
+          <input id="density" type="range" min="0.5" max="1.5" step="0.05" value="1">
+          <output id="densityOut">標準</output>
+        </div>
+        <div class="slider">
+          <label for="sync">シンコペーション</label>
+          <input id="sync" type="range" min="0.3" max="1.4" step="0.05" value="1">
+          <output id="syncOut">標準</output>
+        </div>
+        <div class="slider">
+          <label for="width">音域の広さ</label>
+          <input id="width" type="range" min="0.6" max="1.3" step="0.05" value="1">
+          <output id="widthOut">標準</output>
+        </div>
+      </details>
+
+      <button id="generate" class="primary" type="button">生成する <kbd>G</kbd></button>
+      <p id="status" class="status" aria-live="polite"></p>
+    </aside>
+
+    <section class="work" aria-label="結果">
+      <div class="summary">
+        <div class="summary-main">
+          <strong id="sumKey">—</strong>
+          <span id="sumMood"></span>
+          <span id="sumSeed" class="mono"></span>
+        </div>
+        <div class="history" id="history" aria-label="生成の履歴"></div>
+      </div>
+
+      <div class="stages" role="tablist" aria-label="制作工程" id="stages"></div>
+      <p class="caption" id="caption"></p>
+
+      <div class="roll" id="roll">
+        <canvas id="keys" aria-hidden="true"></canvas>
+        <div class="scroller" id="scroller">
+          <canvas id="grid" role="img" aria-label="ピアノロール"></canvas>
+          <div class="playhead" id="playhead" hidden></div>
+        </div>
+      </div>
+      <div class="legend" id="legend"></div>
+
+      <div class="transport">
+        <button id="play" class="play" type="button" aria-pressed="false">
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path id="playIcon" d="M3 1.5v13l11-6.5z" fill="currentColor"/></svg>
+          <span id="playText">再生</span>
+        </button>
+        <label class="toggle"><input type="checkbox" id="loop" checked> ループ</label>
+        <label class="toggle"><input type="checkbox" id="drums"> ガイドドラム</label>
+        <div class="slider compact">
+          <label for="bpm">テンポ</label>
+          <input id="bpm" type="range" min="60" max="240" step="1" value="174">
+          <output id="bpmOut" class="mono">174</output>
+        </div>
+        <div class="slider compact">
+          <label for="release">リリース</label>
+          <input id="release" type="range" min="0" max="400" step="1" value="0">
+          <output id="releaseOut" class="mono">0ms</output>
+        </div>
+        <div class="export">
+          <button id="midi" type="button">MIDI</button>
+          <button id="midiSplit" type="button">MIDI(パート別)</button>
+          <button id="wav" type="button">WAV</button>
+        </div>
+      </div>
+      <p class="fineprint">小節番号をクリックするとその小節を固定して、残りだけ作り直せます。ロールをクリックするとそこから再生します。</p>
+
+      <div class="notes">
+        <section>
+          <h2>今回考えたこと</h2>
+          <dl id="thoughts" class="thoughts"></dl>
+        </section>
+        <section>
+          <h2>コードごとに使った音階</h2>
+          <div class="table-wrap">
+            <table id="scales">
+              <thead><tr><th>コード</th><th>スケール</th><th>テンション</th><th>避けた音</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <footer class="credit">
+        <p>手順の元ネタ: <a href="https://www.youtube.com/watch?v=5ABIgWACxfs" target="_blank" rel="noopener">井荷麻奈実「日本一参考にならないリリースカットピアノの作り方」</a></p>
+        <p id="pianoCredit">ピアノ音源: Salamander Grand Piano(Alexander Holm, CC BY 3.0)</p>
+      </footer>
+    </section>
+  </main>
+
+  <script src="src/theory.js"></script>
+  <script src="src/moods.js"></script>
+  <script src="src/composer.js"></script>
+  <script src="src/midi.js"></script>
+  <script src="src/audio.js"></script>
+  <script src="src/ui.js"></script>
+</body>
+</html>
