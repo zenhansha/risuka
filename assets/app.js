@@ -72,6 +72,7 @@
       if (r.status === "rejected") { msg.textContent = "この ID は使えません"; return; }
       msg.textContent = "";
       $("goPw").value = "";
+      if (r.status === "admin") { window.OrbitAdmin?.enter(r.token, r.id); return; }
       sstore.set("orbit.session", JSON.stringify({ token: r.token, exp: Date.now() + r.expiresIn }));
       const b = $("goBtn").getBoundingClientRect();
       enterWorld({ x: b.left + b.width / 2, y: b.top + b.height / 2 });
@@ -667,7 +668,9 @@
   setInterval(() => send({ t: "ping" }), 25_000);
 
   // ================================================================== Boot
-  if (resumeSession()) {
+  if (window.OrbitAdmin?.resume()) {
+    // An admin reloaded: the admin panel takes over, nothing else to do.
+  } else if (resumeSession()) {
     // Reloaded while signed in: skip the crossing and go straight to the other side.
     $("gate").hidden = true;
     $("world").hidden = false;

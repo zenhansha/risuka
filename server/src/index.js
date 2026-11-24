@@ -19,6 +19,8 @@ server.listen(config.port, config.host, () => {
   log(`[orbit] listening on ${config.host}:${config.port} (public URL ${config.publicUrl})`);
   if (config.allowPrivate) log('[orbit] WARNING: ORBIT_ALLOW_PRIVATE is on. Never use this on a public server.');
   if (!config.resendApiKey) log('[orbit] RESEND_API_KEY is not set: approval links are printed here instead of emailed.');
+  if (config.admin.id && config.admin.password) log(`[orbit] admin login enabled for id "${config.admin.id}"`);
+  else log('[orbit] admin login is OFF (set ORBIT_ADMIN_ID and ORBIT_ADMIN_PASSWORD to enable).');
 });
 
 async function shutdown(signal) {

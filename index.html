@@ -10,6 +10,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
 <link rel="stylesheet" href="assets/world.css">
+<link rel="stylesheet" href="assets/admin.css">
 </head>
 <body>
 
@@ -77,7 +78,62 @@ go<br>
 
 <canvas id="warp" class="warp" hidden aria-hidden="true"></canvas>
 
+<!-- Admin control panel (shown when an admin logs in at the gate) -->
+<div id="admin" class="admin" hidden>
+  <header class="adm-top">
+    <div class="adm-brand"><span class="adm-dot"></span>ORBIT CONTROL</div>
+    <div class="adm-right">
+      <span class="adm-who" id="admWho"></span>
+      <button class="adm-ghost" id="admRefresh" type="button" title="更新">⟳</button>
+      <button class="adm-ghost" id="admLogout" type="button">ログアウト</button>
+    </div>
+  </header>
+
+  <div class="adm-stats" id="admStats"></div>
+
+  <main class="adm-grid">
+    <section class="adm-card adm-wide">
+      <h2>申請・利用者 <span class="adm-count" id="admAppCount"></span></h2>
+      <div class="adm-filter" id="admFilter">
+        <button class="adm-chip on" data-f="all" type="button">すべて</button>
+        <button class="adm-chip" data-f="pending" type="button">審査待ち</button>
+        <button class="adm-chip" data-f="approved" type="button">承認済み</button>
+        <button class="adm-chip" data-f="rejected" type="button">却下</button>
+      </div>
+      <div class="adm-table-wrap"><table class="adm-table" id="admApps"><tbody></tbody></table></div>
+      <p class="adm-empty" id="admAppsEmpty" hidden>まだ申請はありません。</p>
+    </section>
+
+    <section class="adm-card">
+      <h2>いま使っている人 <span class="adm-count" id="admSessCount"></span></h2>
+      <div class="adm-list" id="admSessions"></div>
+      <p class="adm-empty" id="admSessEmpty" hidden>いまは誰も使っていません。</p>
+    </section>
+
+    <section class="adm-card">
+      <h2>管理者</h2>
+      <div class="adm-list" id="admAdmins"></div>
+      <form class="adm-addform" id="admAddAdmin">
+        <input id="admNewId" type="text" placeholder="新しい管理者 ID" autocomplete="off" autocapitalize="off" spellcheck="false">
+        <input id="admNewPw" type="password" placeholder="パスワード" autocomplete="new-password">
+        <button class="adm-btn" type="submit">追加</button>
+      </form>
+      <p class="adm-msg" id="admAdminMsg" hidden></p>
+    </section>
+
+    <section class="adm-card adm-wide">
+      <h2>設定</h2>
+      <form class="adm-settings" id="admSettings"></form>
+      <div class="adm-settings-foot">
+        <button class="adm-btn primary" id="admSaveSettings" type="submit" form="admSettings">保存する</button>
+        <span class="adm-msg inline" id="admSettingsMsg"></span>
+      </div>
+    </section>
+  </main>
+</div>
+
 <script src="assets/config.js"></script>
+<script src="assets/admin.js"></script>
 <script src="assets/app.js"></script>
 </body>
 </html>

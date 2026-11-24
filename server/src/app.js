@@ -5,7 +5,7 @@ import path from 'node:path';
 import { WebSocketServer } from 'ws';
 import {
   normalizeId, checkId, checkPassword, hashPassword, verifyPassword, newApplicationId,
-  sign, verifySignature, issueToken, readToken,
+  constantEquals, sign, verifySignature, issueToken, readToken,
 } from './ids.js';
 import { RateLimiter } from './ratelimit.js';
 import { reviewPage, messagePage, approvalEmail } from './html.js';
@@ -24,6 +24,70 @@ export function createApp({ config, store, mailer, hub, log = console.log }) {
 
   const reviewUrl = (appId) =>
     `${config.publicUrl}/admin/review?app=${encodeURIComponent(appId)}&sig=${sign(`review:${appId}`, config.secret)}`;
+
+  // ---- settings the admin panel can change at runtime -----------------------------------------
+  // Each reads/writes config.limits live, so changes take effect without a restart. idle and
+  // session are shown in minutes; everything else is a plain count.
+  const SETTINGS = {
+    tabsPerUser: { min: 1, max: 10, get: () => config.limits.tabsPerUser, set: (v) => { config.limits.tabsPerUser = v; } },
+    tabsTotal: { min: 1, max: 50, get: () => config.limits.tabsTotal, set: (v) => { config.limits.tabsTotal = v; } },
+    idleMinutes: { min: 1, max: 180, get: () => Math.round(config.limits.idleMs / 60000), set: (v) => { config.limits.idleMs = v * 60000; } },
+    sessionMinutes: { min: 5, max: 600, get: () => Math.round(config.limits.sessionMs / 60000), set: (v) => { config.limits.sessionMs = v * 60000; } },
+    passwordMinLength: { min: 4, max: 64, get: () => config.limits.passwordMinLength, set: (v) => { config.limits.passwordMinLength = v; } },
+    applyPerHour: { min: 1, max: 100, get: () => config.limits.applyPerHour, set: (v) => { config.limits.applyPerHour = v; applyLimit.limit = v; } },
+    pendingMax: { min: 1, max: 500, get: () => config.limits.pendingMax, set: (v) => { config.limits.pendingMax = v; } },
+  };
+
+  function currentSettings() {
+    const out = {};
+    for (const [k, spec] of Object.entries(SETTINGS)) out[k] = spec.get();
+    return out;
+  }
+
+  // Apply any settings the admin saved earlier over the environment defaults, once at startup.
+  for (const [k, v] of Object.entries(store.getSettings())) {
+    const spec = SETTINGS[k];
+    const n = Math.round(Number(v));
+    if (spec && Number.isFinite(n) && n >= spec.min && n <= spec.max) spec.set(n);
+  }
+
+  // ---- admin accounts -------------------------------------------------------------------------
+  const bootstrapAdminId = config.admin?.id || ''; // already normalized; '' when admin login is disabled
+  const bootstrapAdminPassword = config.admin?.password || '';
+
+  function isAdminId(id) {
+    const n = normalizeId(id);
+    return Boolean(n) && ((bootstrapAdminId && n === bootstrapAdminId) || Boolean(store.findAdmin(n)));
+  }
+
+  async function authAdmin(id, password) {
+    const n = normalizeId(id);
+    if (bootstrapAdminId && n === bootstrapAdminId) {
+      return constantEquals(password, bootstrapAdminPassword, config.secret) ? { id: n, bootstrap: true } : null;
+    }
+    const a = store.findAdmin(n);
+    if (a && (await verifyPassword(password, a.password))) return { id: n, bootstrap: false };
+    return null;
+  }
+
+  function adminList() {
+    const list = [];
+    if (bootstrapAdminId) list.push({ id: bootstrapAdminId, bootstrap: true, addedAt: null });
+    for (const a of store.listAdmins()) list.push({ id: a.id, bootstrap: false, addedAt: a.addedAt ?? null });
+    return list;
+  }
+
+  function requireAdmin(req) {
+    const header = String(req.headers['authorization'] ?? '');
+    const m = /^Bearer (.+)$/.exec(header);
+    const tok = m && readToken(m[1], config.secret);
+    if (!tok || typeof tok.sub !== 'string' || !tok.sub.startsWith('admin:')) {
+      throw new HttpError(401, '管理者のログインが必要です');
+    }
+    const id = tok.sub.slice('admin:'.length);
+    if (!isAdminId(id)) throw new HttpError(401, 'この管理者はもう存在しません');
+    return id;
+  }
 
   function clientIp(req) {
     if (config.trustProxy) {
@@ -48,7 +112,7 @@ export function createApp({ config, store, mailer, hub, log = console.log }) {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Vary', 'Origin');
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
       res.setHeader('Access-Control-Max-Age', '600');
     }
   }
@@ -125,6 +189,20 @@ export function createApp({ config, store, mailer, hub, log = console.log }) {
     const body = await readBody(req);
     const id = normalizeId(body.id);
     if (idLimit.isLimited(id)) throw new HttpError(429, 'パスワードの間違いが多すぎます。15分ほど待ってください');
+    // Admin login: the same gate, but admins get a control panel instead of a browser.
+    if (isAdminId(id)) {
+      const admin = await authAdmin(id, body.password);
+      if (!admin) {
+        idLimit.take(id);
+        throw new HttpError(401, 'ID かパスワードが違います');
+      }
+      return json(res, 200, {
+        status: 'admin',
+        id: admin.id,
+        token: issueToken(`admin:${admin.id}`, config.limits.tokenMs, config.secret),
+        expiresIn: config.limits.tokenMs,
+      });
+    }
     const app = id ? store.findById(id) : null;
     // Same answer, and about the same time, for an unknown ID and a wrong password.
     const ok = await verifyPassword(body.password, app?.password);
@@ -179,6 +257,99 @@ export function createApp({ config, store, mailer, hub, log = console.log }) {
     ));
   }
 
+  // ---- admin panel API ------------------------------------------------------------------------
+
+  function adminOverview(req, res) {
+    requireAdmin(req);
+    const apps = store.data.applications.map((a) => ({
+      appId: a.appId, id: a.id, status: a.status,
+      createdAt: a.createdAt, decidedAt: a.decidedAt, lastLoginAt: a.lastLoginAt,
+      online: Boolean(hub?.sessions.get(a.appId)),
+    }));
+    const sessions = hub
+      ? [...hub.sessions.values()].map((s) => ({
+        appId: s.userKey, id: store.get(s.userKey)?.id ?? '?', tabs: s.tabs.size, since: s.startedAt,
+      }))
+      : [];
+    json(res, 200, {
+      apps,
+      admins: adminList(),
+      settings: currentSettings(),
+      settingRanges: Object.fromEntries(Object.entries(SETTINGS).map(([k, s]) => [k, { min: s.min, max: s.max }])),
+      sessions,
+      stats: { tabs: hub ? hub.totalTabs() : 0, maxTabs: config.limits.tabsTotal },
+    });
+  }
+
+  async function adminDecide(req, res) {
+    requireAdmin(req);
+    const body = await readBody(req);
+    const appId = String(body.appId ?? '');
+    if (body.decision === 'delete') {
+      hub?.sessions.get(appId)?.close('revoked');
+      if (!(await store.removeApplication(appId))) throw new HttpError(404, '申請が見つかりません');
+      log(`[admin] deleted ${appId}`);
+      return json(res, 200, { ok: true, deleted: true });
+    }
+    const decision = body.decision === 'approved' ? 'approved' : 'rejected';
+    const app = await store.update(appId, { status: decision, decidedAt: Date.now() });
+    if (!app) throw new HttpError(404, '申請が見つかりません');
+    if (decision === 'rejected') hub?.sessions.get(appId)?.close('revoked');
+    log(`[admin] ${appId} -> ${decision}`);
+    json(res, 200, { ok: true, status: app.status });
+  }
+
+  async function adminAdmins(req, res) {
+    requireAdmin(req);
+    const body = await readBody(req);
+    const id = normalizeId(body.id);
+    if (body.action === 'add') {
+      const problem = checkId(id) || checkPassword(body.password, id, config.limits.passwordMinLength);
+      if (problem) throw new HttpError(400, problem);
+      if ((bootstrapAdminId && id === bootstrapAdminId) || store.findAdmin(id)) {
+        throw new HttpError(409, 'その管理者 ID はもう使われています');
+      }
+      if (store.findById(id)) throw new HttpError(409, 'その ID は利用者が使っています');
+      await store.addAdmin({ id, password: await hashPassword(body.password), addedAt: Date.now() });
+      log(`[admin] added admin ${id}`);
+      return json(res, 200, { ok: true });
+    }
+    if (body.action === 'remove') {
+      if (bootstrapAdminId && id === bootstrapAdminId) throw new HttpError(400, 'メインの管理者は削除できません');
+      if (!(await store.removeAdmin(id))) throw new HttpError(404, '管理者が見つかりません');
+      log(`[admin] removed admin ${id}`);
+      return json(res, 200, { ok: true });
+    }
+    throw new HttpError(400, '不明な操作です');
+  }
+
+  async function adminSettings(req, res) {
+    requireAdmin(req);
+    const body = await readBody(req);
+    const incoming = body.settings && typeof body.settings === 'object' ? body.settings : {};
+    const toSave = store.getSettings();
+    for (const [k, spec] of Object.entries(SETTINGS)) {
+      if (!(k in incoming)) continue;
+      const v = Math.round(Number(incoming[k]));
+      if (!Number.isFinite(v) || v < spec.min || v > spec.max) {
+        throw new HttpError(400, `${k} は ${spec.min}〜${spec.max} の範囲で入れてください`);
+      }
+      spec.set(v);
+      toSave[k] = v;
+    }
+    await store.setSettings(toSave);
+    log('[admin] settings updated');
+    json(res, 200, { ok: true, settings: currentSettings() });
+  }
+
+  async function adminSessions(req, res) {
+    requireAdmin(req);
+    const body = await readBody(req);
+    const session = hub?.sessions.get(String(body.appId ?? ''));
+    if (session) session.close('admin');
+    json(res, 200, { ok: true });
+  }
+
   async function serveStatic(req, res, url) {
     if (!config.staticDir) return false;
     let rel = decodeURIComponent(url.pathname);
@@ -214,6 +385,11 @@ export function createApp({ config, store, mailer, hub, log = console.log }) {
         case 'POST /api/login': return await login(req, res);
         case 'GET /admin/review': return reviewGet(req, res, url);
         case 'POST /admin/decide': return await reviewPost(req, res);
+        case 'GET /api/admin/overview': return adminOverview(req, res);
+        case 'POST /api/admin/decide': return await adminDecide(req, res);
+        case 'POST /api/admin/admins': return await adminAdmins(req, res);
+        case 'POST /api/admin/settings': return await adminSettings(req, res);
+        case 'POST /api/admin/sessions': return await adminSessions(req, res);
       }
       if (req.method === 'GET' && (await serveStatic(req, res, url))) return;
       throw new HttpError(404, 'ページが見つかりません');

@@ -44,6 +44,13 @@ export const config = {
   mailFrom: env.ORBIT_MAIL_FROM || 'Orbit <onboarding@resend.dev>',
   resendApiKey: env.RESEND_API_KEY || '',
 
+  // The built-in (bootstrap) admin. Credentials come from the environment, never the repo,
+  // so this public code carries no password. Set ORBIT_ADMIN_ID and ORBIT_ADMIN_PASSWORD in .env.
+  admin: {
+    id: (env.ORBIT_ADMIN_ID || '').normalize('NFKC').trim().toLowerCase(),
+    password: env.ORBIT_ADMIN_PASSWORD || '',
+  },
+
   // Only for local tests: lets the remote browser open localhost / LAN pages.
   allowPrivate: bool('ORBIT_ALLOW_PRIVATE'),
 

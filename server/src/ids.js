@@ -66,6 +66,13 @@ export function newApplicationId() {
   return crypto.randomBytes(9).toString('base64url');
 }
 
+/** Constant-time compare of two strings (via HMAC, so length never leaks). */
+export function constantEquals(a, b, secret) {
+  const ha = crypto.createHmac('sha256', secret).update(String(a ?? '')).digest();
+  const hb = crypto.createHmac('sha256', secret).update(String(b ?? '')).digest();
+  return crypto.timingSafeEqual(ha, hb);
+}
+
 export function sign(data, secret) {
   return crypto.createHmac('sha256', secret).update(data).digest('base64url');
 }
