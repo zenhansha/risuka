@@ -1,0 +1,10 @@
+# No "log" directive on purpose: Caddy then keeps no access log, so visited pages are not recorded.
+{$ORBIT_DOMAIN} {
+	encode gzip
+	reverse_proxy orbit:8080
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+}

@@ -1,0 +1,36 @@
+# Orbit on one small server: the app (with Chromium inside) behind Caddy, which gets
+# a free HTTPS certificate from Let's Encrypt automatically.
+services:
+  orbit:
+    build: ../server
+    restart: unless-stopped
+    init: true
+    env_file: .env
+    environment:
+      ORBIT_TRUST_PROXY: "1"
+    volumes:
+      - orbit-data:/data
+    shm_size: "1gb"
+    mem_limit: "${ORBIT_MEM_LIMIT:-5g}"
+    expose:
+      - "8080"
+
+  caddy:
+    image: caddy:2.8.4
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      ORBIT_DOMAIN: "${ORBIT_DOMAIN}"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - orbit
+
+volumes:
+  orbit-data:
+  caddy-data:
+  caddy-config:

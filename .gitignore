@@ -1,4 +1,6 @@
 node_modules/
+server/data/
+deploy/.env
 *.log
 .DS_Store
 Thumbs.db
