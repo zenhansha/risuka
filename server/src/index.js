@@ -12,7 +12,7 @@ const store = await new Store(config.dataDir).load();
 const mailer = createMailer({ apiKey: config.resendApiKey, from: config.mailFrom, to: config.ownerEmail, log });
 const guard = createGuard({ allowPrivate: config.allowPrivate, log: config.dev ? log : () => {} });
 const proxyServer = await guard.listen();
-const hub = await new BrowserHub({ proxyServer, limits: config.limits, screen: config.screen, log }).start();
+const hub = await new BrowserHub({ proxyServer, limits: config.limits, screen: config.screen, lowMemory: config.lowMemory, log }).start();
 const { server } = createApp({ config, store, mailer, hub, log });
 
 server.listen(config.port, config.host, () => {

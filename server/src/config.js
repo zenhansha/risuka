@@ -54,6 +54,9 @@ export const config = {
   // Only for local tests: lets the remote browser open localhost / LAN pages.
   allowPrivate: bool('ORBIT_ALLOW_PRIVATE'),
 
+  // Trade isolation and speed for RAM, for a tiny server such as a 1 GB free instance.
+  lowMemory: bool('ORBIT_LOW_MEMORY'),
+
   limits: {
     tabsPerUser: int('ORBIT_TABS_PER_USER', 3),
     tabsTotal: int('ORBIT_TABS_TOTAL', 10),

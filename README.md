@@ -182,6 +182,27 @@ window.ORBIT_CONFIG = {
 cd ~/orbit && git pull && cd deploy && sudo docker compose up -d --build
 ```
 
+### 小さいサーバーで先に動かす(A1 が取れるまでのつなぎ)
+
+A1 がなかなか取れないときは、常に空いている **E2.1.Micro(1 OCPU / 1 GB)** で先に動かしておき、A1 が取れたら引っ越せます。ただし 1 GB は Chromium にはギリギリなので、**1 人・1 タブ**くらいの実験用と思ってください。
+
+1 GB 向けに、メモリ節約モードの上書き設定(`deploy/docker-compose.micro.yml`)を用意してあります。`.env` を作るときに上限を絞り(`ORBIT_TABS_PER_USER=1`、`ORBIT_TABS_TOTAL=1`、`ORBIT_JPEG_QUALITY=45`)、起動を次のようにします。
+
+```bash
+cd ~/orbit/deploy && sudo docker compose -f docker-compose.yml -f docker-compose.micro.yml up -d --build
+```
+
+> ドメインは DuckDNS の代わりに **sslip.io** も使えます(IP をそのまま名前にできる)。例: IP が `152.70.104.86` なら `ORBIT_DOMAIN=orbit.152-70-104-86.sslip.io`、`ORBIT_PUBLIC_URL=https://orbit.152-70-104-86.sslip.io`。Caddy が自動で証明書を取ります。
+
+### A1 が取れたら引っ越す
+
+1. A1 サーバーで、同じ手順で Orbit を起動(今度は `docker-compose.micro.yml` は付けず、上限も通常の値に)
+2. `.env` の `ORBIT_DOMAIN` と `ORBIT_PUBLIC_URL` を A1 側のドメインに変える
+3. `assets/config.js` の `apiBase` を A1 側の URL にして push
+4. 古い micro は Oracle コンソールで終了(Terminate)
+
+申請・承認データ(`server/data/applications.json`)を引き継ぎたいときは、そのファイルを新サーバーの同じ場所にコピーしてから起動してください。コピーしなければ、全員が申請し直しになります。
+
 ### 困ったとき
 
 ```bash
@@ -194,6 +215,7 @@ cd ~/orbit/deploy && sudo docker compose logs --tail 100 orbit
 | `/api/health` が開かない | セキュリティ・リストの 80/443、DuckDNS の IP、`ORBIT_DOMAIN` を確認 |
 | 承認メールが来ない | `RESEND_API_KEY` と `ORBIT_OWNER_EMAIL`(Resend に登録したアドレス)を確認。迷惑メールフォルダも |
 | 「サーバーが混んでいます」 | 全体のタブ数の上限。`ORBIT_TABS_TOTAL` を増やすか、メモリを増やす |
+| 1 GB サーバーでページがよく落ちる・固まる | メモリ不足。`docker-compose.micro.yml` を付けて起動し、`ORBIT_TABS_TOTAL=1` まで絞る。根本的には A1 へ |
 
 ## 手元で動かす(開発用)
 

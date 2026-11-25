@@ -10,10 +10,11 @@ const FRAME = 1; // binary message type: [1][tabId uint32 BE][jpeg bytes]
 const MAX_BUFFERED = 1_500_000; // bytes waiting on the socket before frames are skipped
 
 export class BrowserHub {
-  constructor({ proxyServer, limits, screen, log = console.log }) {
+  constructor({ proxyServer, limits, screen, lowMemory = false, log = console.log }) {
     this.proxyServer = proxyServer;
     this.limits = limits;
     this.screen = screen;
+    this.lowMemory = lowMemory;
     this.log = log;
     this.browser = null;
     this.sessions = new Map(); // userKey -> Session
@@ -21,20 +22,31 @@ export class BrowserHub {
   }
 
   async start() {
-    this.browser = await chromium.launch({
-      headless: true,
-      proxy: { server: this.proxyServer },
-      args: [
-        '--disable-dev-shm-usage',
-        '--disable-background-networking',
-        '--disable-component-update',
-        '--disable-sync',
-        '--disable-default-apps',
-        '--no-first-run',
-        '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
-        '--webrtc-ip-handling-policy=disable_non_proxied_udp',
-      ],
-    });
+    const args = [
+      '--disable-dev-shm-usage',
+      '--disable-background-networking',
+      '--disable-component-update',
+      '--disable-sync',
+      '--disable-default-apps',
+      '--no-first-run',
+      '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
+      '--webrtc-ip-handling-policy=disable_non_proxied_udp',
+    ];
+    if (this.lowMemory) {
+      // For a tiny server (e.g. a 1 GB free instance): trade some isolation and speed for RAM.
+      // Site isolation is turned off, so keep this off on a server that holds several users.
+      args.push(
+        '--disable-gpu',
+        '--disable-software-rasterizer',
+        '--disable-extensions',
+        '--mute-audio',
+        '--renderer-process-limit=2',
+        '--disable-features=site-per-process,TranslateUI',
+        '--js-flags=--max-old-space-size=256',
+      );
+      this.log('[browser] low-memory mode is on');
+    }
+    this.browser = await chromium.launch({ headless: true, proxy: { server: this.proxyServer }, args });
     const major = this.browser.version().split('.')[0];
     // A plain desktop Chrome user agent: "HeadlessChrome" gets blocked by many sites.
     this.userAgent = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${major}.0.0.0 Safari/537.36`;

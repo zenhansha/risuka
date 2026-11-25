@@ -1,0 +1,15 @@
+# Overrides for a tiny server, such as a 1 GB free E2.1.Micro used as a stopgap until an
+# A1 instance is free. Turns on low-memory mode (fewer Chromium processes, smaller caches)
+# and shrinks the shared-memory tmpfs. Use it together with the base file:
+#
+#   sudo docker compose -f docker-compose.yml -f docker-compose.micro.yml up -d --build
+#
+# Keep tabs tight on 1 GB — set these in .env too:
+#   ORBIT_TABS_PER_USER=1
+#   ORBIT_TABS_TOTAL=1
+#   ORBIT_JPEG_QUALITY=45
+services:
+  orbit:
+    shm_size: "256m"
+    environment:
+      ORBIT_LOW_MEMORY: "1"
