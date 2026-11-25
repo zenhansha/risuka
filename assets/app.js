@@ -250,7 +250,8 @@
   let navPending = false; // a navigation was asked for and the server has not confirmed it yet
   let leaving = false;
 
-  const search = (q) => "https://www.startpage.com/do/search?q=" + encodeURIComponent(q);
+  // サーバー経由で隔離されているので、検索は普通に Google でよい。
+  const search = (q) => "https://www.google.com/search?q=" + encodeURIComponent(q);
 
   function toTarget(text) {
     const s = text.trim();
