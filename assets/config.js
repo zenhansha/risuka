@@ -2,5 +2,6 @@
 //   apiBase: "https://orbit-xxxx.duckdns.org"
 // Leave it empty when the server itself serves this page (local development).
 window.ORBIT_CONFIG = {
-  apiBase: "",
+  // つなぎの micro サーバー(1GB)。A1 が取れたらこの URL を A1 のものに変える。
+  apiBase: "https://orbit.152-70-104-86.sslip.io",
 };
