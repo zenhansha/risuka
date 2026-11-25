@@ -164,8 +164,10 @@
     // Lay the world out (invisible) first so the remote viewport gets the right size.
     $("world").style.visibility = "hidden";
     $("world").hidden = false;
+    applyModeChrome();
     setState();
-    connect();
+    if (mode === "full") connect();
+    else { $("hudText").textContent = "FAST"; $("hudState").classList.remove("online"); }
     await warp(origin.x, origin.y);
     $("gate").hidden = true;
     $("world").style.visibility = "";
@@ -250,6 +252,84 @@
   let navPending = false; // a navigation was asked for and the server has not confirmed it yet
   let leaving = false;
 
+  // Mode: "fast" = anonymous-view proxy (the server rewrites pages, your browser renders them,
+  // so it feels instant); "full" = the remote browser (Chromium streamed as video).
+  let mode = (() => { try { return localStorage.getItem("orbit.mode") || "fast"; } catch { return "fast"; } })();
+  const fast = { cur: "", title: "", stack: [], pos: -1, loading: false, pendingNav: null };
+
+  function proxyUrl(u) {
+    return (API || "") + "/p?u=" + encodeURIComponent(u) + "&t=" + encodeURIComponent(session?.token || "");
+  }
+
+  function applyModeChrome() {
+    $("modeIc").textContent = mode === "fast" ? "⚡" : "🛡";
+    $("modeTx").textContent = mode === "fast" ? "高速" : "完全";
+    $("world").dataset.mode = mode;
+  }
+
+  function fastGo(url, { fromHistory = false } = {}) {
+    if (!session && !resumeSession()) { leave(); return; }
+    fast.loading = true;
+    fast.pendingNav = fromHistory ? "history" : "normal";
+    $("pframe").src = proxyUrl(url);
+    if (!fromHistory) { fast.cur = url; fast.title = url; }
+    render();
+  }
+
+  function pushFast(url) {
+    if (fast.pos >= 0 && fast.stack[fast.pos] === url) return;
+    fast.stack = fast.stack.slice(0, fast.pos + 1);
+    fast.stack.push(url);
+    fast.pos = fast.stack.length - 1;
+  }
+
+  function fastBack() { if (fast.pos > 0) { fast.pos--; fastGo(fast.stack[fast.pos], { fromHistory: true }); } }
+  function fastForward() { if (fast.pos < fast.stack.length - 1) { fast.pos++; fastGo(fast.stack[fast.pos], { fromHistory: true }); } }
+  function fastReload() { if (fast.cur) fastGo(fast.cur, { fromHistory: true }); }
+  function fastHome() { fast.cur = ""; fast.title = ""; fast.loading = false; $("pframe").removeAttribute("src"); render(); $("address").focus(); }
+
+  // The proxied page tells us (via postMessage) which URL it is actually showing.
+  window.addEventListener("message", (e) => {
+    const d = e.data;
+    if (!d || d.orbit !== "url" || mode !== "fast" || typeof d.url !== "string") return;
+    fast.loading = false;
+    if (fast.pendingNav !== "history") pushFast(d.url);
+    fast.cur = d.url;
+    fast.title = d.url;
+    fast.pendingNav = null;
+    render();
+  });
+
+  function setMode(next, { carry = true } = {}) {
+    if (next === mode) return;
+    const from = mode;
+    const carryUrl = carry ? (from === "fast" ? fast.cur : (tabs.get(activeId)?.url)) : "";
+    mode = next;
+    try { localStorage.setItem("orbit.mode", next); } catch {}
+    $("modeIc").textContent = next === "fast" ? "⚡" : "🛡";
+    $("modeTx").textContent = next === "fast" ? "高速" : "完全";
+    $("world").dataset.mode = next;
+    if (next === "fast") {
+      // Drop the remote browser to free the server.
+      leaving = true;
+      try { ws && ws.close(); } catch {}
+      ws = null;
+      clearInterval(clockTimer);
+      tabs.clear(); activeId = null; navPending = false; queuedUrl = null;
+      fast.cur = ""; fast.title = ""; fast.stack = []; fast.pos = -1;
+      $("hudState").classList.remove("online");
+      $("hudText").textContent = "FAST";
+      render();
+      if (carryUrl && !isBlank(carryUrl)) fastGo(carryUrl);
+    } else {
+      $("pframe").removeAttribute("src");
+      fast.cur = ""; fast.loading = false;
+      queuedUrl = carryUrl && !isBlank(carryUrl) ? carryUrl : null;
+      render();
+      connect();
+    }
+  }
+
   // サーバー経由で隔離されているので、検索は普通に Google でよい。
   const search = (q) => "https://www.google.com/search?q=" + encodeURIComponent(q);
 
@@ -283,19 +363,38 @@
 
   const isBlank = (url) => !url || url === "about:blank";
 
-  /** Start screen when the active tab is empty; otherwise the address bar docks and the page shows. */
+  /** Start screen when nothing is open; otherwise the address bar docks and the page shows. */
   function setState() {
-    const t = tabs.get(activeId);
-    const blank = !navPending && (!t || (isBlank(t.url) && !t.loading));
     const world = $("world");
+    let blank, loading;
+    if (mode === "fast") {
+      blank = !fast.cur && !fast.loading;
+      loading = fast.loading;
+    } else {
+      const t = tabs.get(activeId);
+      blank = !navPending && (!t || (isBlank(t.url) && !t.loading));
+      loading = Boolean(navPending || t?.loading);
+    }
+    world.dataset.mode = mode;
+    $("pframe").hidden = mode !== "fast";
+    $("screen").style.display = mode === "fast" ? "none" : "";
     const wasStart = world.classList.contains("start");
     world.classList.toggle("start", blank);
     world.classList.toggle("browsing", !blank);
-    world.classList.toggle("loading", Boolean(navPending || t?.loading));
+    world.classList.toggle("loading", loading);
     if (blank && !wasStart && !world.hidden) startField();
   }
 
   function render() {
+    if (mode === "fast") {
+      $("backBtn").disabled = fast.pos <= 0;
+      $("fwdBtn").disabled = fast.pos >= fast.stack.length - 1;
+      if (document.activeElement !== $("address")) $("address").value = fast.cur || "";
+      document.title = fast.title || "Orbit";
+      $("tabs").textContent = "";
+      setState();
+      return;
+    }
     const t = tabs.get(activeId);
     $("backBtn").disabled = !t?.back;
     $("fwdBtn").disabled = !t?.forward;
@@ -351,9 +450,10 @@
   function navigate(text) {
     const url = toTarget(text);
     if (!url) return;
+    $("address").blur();
+    if (mode === "fast") { fastGo(url); return; }
     if (activeId === null || !ws || ws.readyState !== 1) queuedUrl = url;
     else send({ t: "navigate", tab: activeId, url });
-    $("address").blur();
     navPending = true;
     render();
     focusPage();
@@ -477,12 +577,16 @@
     activeId = null;
     navPending = false;
     queuedUrl = null;
+    fast.cur = ""; fast.title = ""; fast.stack = []; fast.pos = -1; fast.loading = false;
+    try { $("pframe").removeAttribute("src"); } catch {}
     $("world").hidden = true;
     $("gate").hidden = false;
     $("goMsg").textContent = "";
     veil(null);
     document.title = "go";
   }
+
+  $("pframe").addEventListener("load", () => { if (mode === "fast" && fast.loading) { fast.loading = false; render(); } });
 
   function updateClock() {
     if (!$("hudState").classList.contains("online")) return;
@@ -640,10 +744,15 @@
   // ================================================================== Controls
   $("omni").addEventListener("submit", (e) => { e.preventDefault(); navigate($("address").value); });
   $("address").addEventListener("focus", () => $("address").select());
-  $("backBtn").addEventListener("click", () => send({ t: "back", tab: activeId }));
-  $("fwdBtn").addEventListener("click", () => send({ t: "forward", tab: activeId }));
-  $("reloadBtn").addEventListener("click", () => send({ t: tabs.get(activeId)?.loading ? "stop" : "reload", tab: activeId }));
-  $("newTabBtn").addEventListener("click", () => { send({ t: "new-tab" }); setTimeout(() => $("address").focus(), 400); });
+  $("backBtn").addEventListener("click", () => (mode === "fast" ? fastBack() : send({ t: "back", tab: activeId })));
+  $("fwdBtn").addEventListener("click", () => (mode === "fast" ? fastForward() : send({ t: "forward", tab: activeId })));
+  $("reloadBtn").addEventListener("click", () => (mode === "fast" ? fastReload() : send({ t: tabs.get(activeId)?.loading ? "stop" : "reload", tab: activeId })));
+  $("newTabBtn").addEventListener("click", () => {
+    if (mode === "fast") { fastHome(); return; }
+    send({ t: "new-tab" });
+    setTimeout(() => $("address").focus(), 400);
+  });
+  $("modeBtn").addEventListener("click", () => setMode(mode === "fast" ? "full" : "fast"));
   $("exitBtn").addEventListener("click", leave);
   $("exitBtn2").addEventListener("click", leave);
   $("veilBtn").addEventListener("click", connect);
@@ -676,8 +785,10 @@
     $("gate").hidden = true;
     $("world").hidden = false;
     document.title = "Orbit";
+    applyModeChrome();
     setState();
     startField();
-    connect();
+    if (mode === "full") connect();
+    else { $("hudText").textContent = "FAST"; $("hudState").classList.remove("online"); }
   }
 })();

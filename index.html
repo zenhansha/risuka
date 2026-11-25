@@ -44,6 +44,9 @@ go<br>
   </div>
 
   <div class="bar" id="bar">
+    <button class="mode-btn" id="modeBtn" type="button" aria-label="モード切り替え" title="高速(匿名ビュー)と完全(リモート)を切り替え">
+      <span class="mode-ic" id="modeIc">⚡</span><span class="mode-tx" id="modeTx">高速</span>
+    </button>
     <div class="nav">
       <button class="ghost" id="backBtn" type="button" aria-label="戻る" disabled><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button>
       <button class="ghost" id="fwdBtn" type="button" aria-label="進む" disabled><svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg></button>
@@ -62,6 +65,7 @@ go<br>
   </div>
 
   <div class="stage" id="stage">
+    <iframe id="pframe" class="pframe" title="ページ" hidden sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"></iframe>
     <canvas id="screen" tabindex="-1" aria-label="ページの画面"></canvas>
     <textarea id="kbd" class="kbd" aria-label="キーボード入力" autocapitalize="off" autocomplete="off" spellcheck="false"></textarea>
   </div>

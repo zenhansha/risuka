@@ -9,6 +9,7 @@ import {
 } from './ids.js';
 import { RateLimiter } from './ratelimit.js';
 import { reviewPage, messagePage, approvalEmail } from './html.js';
+import { createProxy } from './proxy.js';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
@@ -21,6 +22,17 @@ export function createApp({ config, store, mailer, hub, log = console.log }) {
   const loginLimit = new RateLimiter(config.limits.loginPerMinute, 60_000);
   const idLimit = new RateLimiter(10, 15 * 60_000); // wrong passwords per ID, whatever the IP
   const decideLimit = new RateLimiter(30, 60_000);
+
+  const proxyLimit = new RateLimiter(1200, 60_000); // subresource requests per IP per minute
+  const proxyView = createProxy({
+    config,
+    isAuthed: (token) => {
+      const t = readToken(token, config.secret);
+      const app = t && store.get(t.sub);
+      return Boolean(app && app.status === 'approved');
+    },
+    log,
+  });
 
   const reviewUrl = (appId) =>
     `${config.publicUrl}/admin/review?app=${encodeURIComponent(appId)}&sig=${sign(`review:${appId}`, config.secret)}`;
@@ -376,6 +388,10 @@ export function createApp({ config, store, mailer, hub, log = console.log }) {
       }
       if (url.pathname.startsWith('/api/') && req.method === 'POST' && !originAllowed(req.headers.origin)) {
         throw new HttpError(403, 'このページからは使えません');
+      }
+      if (req.method === 'GET' && url.pathname === '/p') {
+        if (!proxyLimit.take(clientIp(req))) throw new HttpError(429, 'アクセスが多すぎます');
+        return await proxyView(req, res, url);
       }
       const route = `${req.method} ${url.pathname}`;
       switch (route) {
