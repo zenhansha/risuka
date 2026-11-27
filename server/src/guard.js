@@ -66,7 +66,8 @@ export function createGuard({ allowPrivate = false, blockTrackers = true, log = 
     if (!allowPrivate && addrs.some((a) => isPrivateAddress(a.address))) {
       throw new GuardError(`${host} points to a private address`);
     }
-    return addrs[0].address;
+    // Prefer IPv4: a small cloud instance often has no working IPv6 egress.
+    return (addrs.find((a) => a.family === 4) || addrs[0]).address;
   }
 
   const server = http.createServer(async (req, res) => {

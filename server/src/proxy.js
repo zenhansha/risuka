@@ -23,11 +23,17 @@ const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 function makeLookup(allowPrivate) {
   return (hostname, options, cb) => {
     const callback = typeof options === 'function' ? options : cb;
-    dns.lookup(hostname, { all: true, verbatim: true }, (err, addresses) => {
+    const wantsAll = typeof options === 'object' && options && options.all;
+    dns.lookup(hostname, { all: true }, (err, addresses) => {
       if (err) return callback(err);
-      const ok = allowPrivate ? addresses[0] : addresses.find((a) => !isPrivateAddress(a.address));
-      if (!ok) return callback(new Error('blocked address'));
-      callback(null, ok.address, ok.family);
+      const list = (allowPrivate ? addresses : addresses.filter((a) => !isPrivateAddress(a.address)));
+      // Prefer IPv4: a small cloud instance often has no working IPv6 egress.
+      list.sort((a, b) => (a.family === 4 ? 0 : 1) - (b.family === 4 ? 0 : 1));
+      if (!list.length) return callback(new Error('blocked address'));
+      // Node 20+ (autoSelectFamily) calls lookup with options.all and expects the array form;
+      // other callers expect (address, family). Answer in whichever form was asked for.
+      if (wantsAll) return callback(null, list);
+      callback(null, list[0].address, list[0].family);
     });
   };
 }
